@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0f172a" />
 
   <style>
-    :root { --bg:#0f172a; --fg:#e5e7eb; --muted:#94a3b8; --card:#111827; --accent:#22d3ee; }
+       :root { --bg:#0f172a; --fg:#e5e7eb; --muted:#94a3b8; --card:#111827; --accent:#22d3ee; }
     body{
       margin:0; font-family:system-ui,Roboto,Inter,Arial;
       background:linear-gradient(180deg,#0b1020,#0f172a 40%,#0b1020);
@@ -31,7 +31,7 @@
       background:rgba(17,24,39,.7); border:1px solid rgba(148,163,184,.15);
       border-radius:16px; padding:12px; margin-top:12px;
     }
-    table{ width:100%; border-collapse:separate; border-spacing:0; }
+    table{ width:100%; border-collapse:separate; border-spacing:0; table-layout:fixed; }
     thead th{
       background:rgba(17,24,39,.95);
       border-bottom:1px solid rgba(148,163,184,.2); padding:10px; text-align:left; font-weight:600;
@@ -39,10 +39,15 @@
     td{ padding:8px; border-bottom:1px dashed rgba(148,163,184,.15); vertical-align:top; }
     tbody tr:hover td{ background:rgba(2,6,23,.25); }
     .dayHeader{ background:rgba(34,211,238,0.1); color:#22d3ee; font-weight:bold; padding:8px; border-top:2px solid rgba(148,163,184,.3); }
-    .period{ color:var(--muted); white-space:nowrap; }
-    .val{ white-space:pre-wrap; }
+    .period{ color:var(--muted); white-space:nowrap; width:80px; }
+    .val{ white-space:pre-wrap; word-break:break-word; max-width:100%; }
     .empty{ color:var(--muted); }
     footer{ color:var(--muted); font-size:13px; padding:24px 8px; text-align:center; }
+
+    /* Подсветка */
+    .highlight-slash { color:#f87171; font-weight:bold; }
+    .week-highlight { color:#22d3ee; font-weight:bold; text-decoration:underline; }
+
   </style>
 </head>
 <body>
@@ -135,10 +140,21 @@
         const tdP=document.createElement('td');
         tdP.className='period'; tdP.textContent=r.period||'—';
         const tdV=document.createElement('td');
-        tdV.className=(r.value==='—'?'val empty':'val'); tdV.textContent=r.value??'—';
+        tdV.className=(r.value==='—'?'val empty':'val');
+
+        // подсветка слэшей и четн./нечет. недель
+        let text = r.value??'—';
+        text = text
+          .replace(/(?<!https?:)\/+/g,'<span class="highlight-slash">/</span>') // выделяем слэш, кроме ссылок
+          .replace(/чётн\. нед\./gi,'<span class="week-highlight">Чётн. нед.</span>')
+          .replace(/нечётн?\. нед\./gi,'<span class="week-highlight">Нечёт. нед.</span>');
+
+        tdV.innerHTML=text;
+
         tr.appendChild(tdP); tr.appendChild(tdV); tb.appendChild(tr);
       }
     }
+
 
     // ====== GOOGLE SHEETS ======
     async function fetchSheet({sheetId,apiKey,sheetTitle}){
