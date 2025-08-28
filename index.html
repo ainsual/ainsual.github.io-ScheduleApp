@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Расписание (PWA)</title>
+  <meta name="theme-color" content="#0f172a" />
+
+  <style>
+    :root { --bg:#0f172a; --fg:#e5e7eb; --muted:#94a3b8; --card:#111827; --accent:#22d3ee; }
+    body{
+      margin:0; font-family:system-ui,Roboto,Inter,Arial;
+      background:linear-gradient(180deg,#0b1020,#0f172a 40%,#0b1020);
+      color:var(--fg);
+    }
+    .wrap{ max-width:960px; margin-inline:auto; padding:16px; }
+    header{
+      display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+      background:rgba(15,23,42,.7); border-bottom:1px solid rgba(148,163,184,.15); padding:12px 16px; border-radius:0 0 16px 16px;
+      position:sticky; top:0; backdrop-filter:blur(6px);
+    }
+    h1{ font-size:20px; margin:0; }
+    .controls{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    input,button{
+      font:inherit; padding:8px 12px; border-radius:10px; border:1px solid rgba(148,163,184,.2);
+      background:#0b1224; color:var(--fg);
+    }
+    button{ cursor:pointer; background:linear-gradient(180deg,#1f2937,#111827); }
+    .badge{ color:var(--muted); font-size:13px; }
+    .card{
+      background:rgba(17,24,39,.7); border:1px solid rgba(148,163,184,.15);
+      border-radius:16px; padding:12px; margin-top:12px;
+    }
+    table{ width:100%; border-collapse:separate; border-spacing:0; }
+    thead th{
+      background:rgba(17,24,39,.95);
+      border-bottom:1px solid rgba(148,163,184,.2); padding:10px; text-align:left; font-weight:600;
+    }
+    td{ padding:8px; border-bottom:1px dashed rgba(148,163,184,.15); vertical-align:top; }
+    tbody tr:hover td{ background:rgba(2,6,23,.25); }
+    .dayHeader{ background:rgba(34,211,238,0.1); color:#22d3ee; font-weight:bold; padding:8px; border-top:2px solid rgba(148,163,184,.3); }
+    .period{ color:var(--muted); white-space:nowrap; }
+    .val{ white-space:pre-wrap; }
+    .empty{ color:var(--muted); }
+    footer{ color:var(--muted); font-size:13px; padding:24px 8px; text-align:center; }
+  </style>
+</head>
+<body>
+  <header class="wrap">
+    <h1>Расписание</h1>
+    <div class="controls">
+      <input id="groupName" placeholder="Группа (напр. 11-403)" size="14" />
+      <input id="sheetTitle" placeholder="Название листа (опц.)" size="14" />
+      <button id="loadBtn">Загрузить</button>
+      <button id="refreshBtn">Обновить</button>
+    </div>
+    <div class="badge" id="status">—</div>
+    <div class="badge" id="weekInfo">—</div>
+  </header>
+
+  <main class="wrap">
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:120px">Период</th>
+            <th>Занятие</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="2" class="empty">Данных пока нет. Нажмите «Загрузить».</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <footer>
+    © Расписание • PWA • GitHub Pages
+  </footer>
+
+  <script>
+    // ====== НАСТРОЙКИ ======
+    const DEFAULTS = {
+      SHEET_ID: "1Rw5W6llxqA1I7b0L-FJrUeCkgt5lDMSwB1xjxSWX5mU",
+      API_KEY: "AIzaSyD3WBYjchzpQKKm7YkFPi0--jlsT6CZnSo",
+      SHEET_TITLE: "",
+      GROUP_NAME: "11-403"
+    };
+
+    // ====== ЧЕТНОСТЬ НЕДЕЛИ ======
+    const SEMESTER_START = new Date(2024, 8, 2); // 2 сентября 2024
+    const FIRST_WEEK_ODD = true; // первая неделя нечётная
+    function getWeekParity(today = new Date()){
+      const msInWeek = 1000 * 60 * 60 * 24 * 7;
+      const diffWeeks = Math.floor((today - SEMESTER_START) / msInWeek);
+      const isOdd = (diffWeeks % 2 === 0) ? FIRST_WEEK_ODD : !FIRST_WEEK_ODD;
+      return isOdd ? 'Нечётная неделя' : 'Чётная неделя';
+    }
+
+    const $ = id=>document.getElementById(id);
+    const fmtDateTime = d => new Date(d).toLocaleString('ru-RU',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+    function setStatus(msg){ $('status').textContent = msg; }
+
+    const LS_KEYS={meta:'sched_meta',data:'sched_rows'};
+    function saveToLocal(rows,meta){
+      localStorage.setItem(LS_KEYS.data,JSON.stringify(rows));
+      localStorage.setItem(LS_KEYS.meta,JSON.stringify(meta));
+    }
+    function loadFromLocal(){
+      try{
+        const rows=JSON.parse(localStorage.getItem(LS_KEYS.data)||'null');
+        const meta=JSON.parse(localStorage.getItem(LS_KEYS.meta)||'null');
+        if(rows&&meta) return {rows,meta};
+      }catch{}
+      return null;
+    }
+
+    // ====== РЕНДЕР ======
+    function renderRows(rows){
+      const tb=$('tbody');
+      tb.innerHTML='';
+      if(!rows||rows.length===0){
+        tb.innerHTML='<tr><td colspan="2" class="empty">Ничего не найдено.</td></tr>'; return;
+      }
+      let lastDay=null;
+      for(const r of rows){
+        if(r.day!=='—'&&r.day!==lastDay){
+          const trDay=document.createElement('tr');
+          const td=document.createElement('td');
+          td.colSpan=2; td.textContent=r.day; td.className='dayHeader';
+          trDay.appendChild(td); tb.appendChild(trDay);
+          lastDay=r.day;
+        }
+        const tr=document.createElement('tr');
+        const tdP=document.createElement('td');
+        tdP.className='period'; tdP.textContent=r.period||'—';
+        const tdV=document.createElement('td');
+        tdV.className=(r.value==='—'?'val empty':'val'); tdV.textContent=r.value??'—';
+        tr.appendChild(tdP); tr.appendChild(tdV); tb.appendChild(tr);
+      }
+    }
+
+    // ====== GOOGLE SHEETS ======
+    async function fetchSheet({sheetId,apiKey,sheetTitle}){
+      const base='https://sheets.googleapis.com/v4/spreadsheets/';
+      const params=new URLSearchParams({
+        includeGridData:'true',
+        fields:'sheets(properties(title,gridProperties),merges,data(rowData(values(effectiveValue))))',
+        key:apiKey
+      });
+      const url=`${base}${sheetId}?${params.toString()}`;
+      const res=await fetch(url);
+      if(!res.ok) throw new Error('Google API error: '+await res.text());
+      const json=await res.json();
+      let targetSheet=null;
+      if(sheetTitle){
+        targetSheet=json.sheets.find(s=>s.properties?.title===sheetTitle);
+        if(!targetSheet) throw new Error(`Лист "${sheetTitle}" не найден`);
+      } else targetSheet=json.sheets?.[0];
+      if(!targetSheet) throw new Error('Нет листов');
+      return targetSheet;
+    }
+
+    function createMergeResolver(sheet){
+      const merges=(sheet.merges||[]).map(m=>({
+        startRow:m.startRowIndex|0,endRow:m.endRowIndex|0,
+        startCol:m.startColumnIndex|0,endCol:m.endColumnIndex|0
+      }));
+      const rows=sheet.data?.[0]?.rowData||[];
+      function cellValueAt(r,c){
+        const row=rows[r]; const cell=row?.values?.[c];
+        const v=cell?.effectiveValue||null;
+        if(!v) return null;
+        if('stringValue'in v) return v.stringValue;
+        if('numberValue'in v) return String(v.numberValue);
+        if('boolValue'in v) return v.boolValue?'TRUE':'FALSE';
+        return null;
+      }
+      function findMergeFor(r,c){
+        return merges.find(m=>r>=m.startRow&&r<m.endRow&&c>=m.startCol&&c<m.endCol)||null;
+      }
+      function getMergedTopLeftValue(r,c){
+        const m=findMergeFor(r,c); if(!m) return null;
+        return cellValueAt(m.startRow,m.startCol);
+      }
+      function valueConsideringMerge(r,c){
+        const direct=cellValueAt(r,c);
+        if(direct!=null&&direct!=='') return direct;
+        const tl=getMergedTopLeftValue(r,c);
+        if(tl!=null&&tl!=='') return tl;
+        return '—';
+      }
+      return {valueConsideringMerge,rows};
+    }
+
+    function parseSchedule(sheet,groupName){
+      const res=createMergeResolver(sheet); const rows=res.rows;
+      if(rows.length<2) throw new Error('Слишком мало строк');
+      const headerRowIdx=1; let groupCol=-1;
+      for(let c=0;c<(rows[headerRowIdx]?.values||[]).length;c++){
+        const v=res.valueConsideringMerge(headerRowIdx,c);
+        if((v||'').toString().trim().toLowerCase()===groupName.trim().toLowerCase()){groupCol=c;break;}
+      }
+      if(groupCol===-1){
+        for(let c=0;c<(rows[headerRowIdx]?.values||[]).length;c++){
+          const v=(res.valueConsideringMerge(headerRowIdx,c)||'').toString().toLowerCase();
+          if(v.includes(groupName.trim().toLowerCase())){groupCol=c;break;}
+        }
+      }
+      if(groupCol===-1) throw new Error(`Колонка "${groupName}" не найдена`);
+      const startRow=2,out=[];
+      for(let r=startRow;r<rows.length;r++){
+        const day=res.valueConsideringMerge(r,0);
+        const period=res.valueConsideringMerge(r,1);
+        const val=res.valueConsideringMerge(r,groupCol);
+        if(day==='—'&&period==='—'&&val==='—') continue;
+        out.push({day,period,value:val});
+      }
+      return {rows:out,groupCol};
+    }
+
+    async function loadSchedule({useCache=true}={}){
+      const sheetId=$('sheetId').value.trim()||DEFAULTS.SHEET_ID;
+      const apiKey=$('apiKey').value.trim()||DEFAULTS.API_KEY;
+      const group=$('groupName').value.trim()||DEFAULTS.GROUP_NAME;
+      const sheetTitle=$('sheetTitle').value.trim()||DEFAULTS.SHEET_TITLE;
+      if(useCache){
+        const cached=loadFromLocal();
+        if(cached&&cached.meta.sheetId===sheetId&&cached.meta.group===group&&(cached.meta.sheetTitle||'')===(sheetTitle||'')){
+          setStatus(`Кеш • ${fmtDateTime(cached.meta.updatedAt)}`); renderRows(cached.rows); return;
+        }
+      }
+      setStatus('Загрузка…');
+      const sheet=await fetchSheet({sheetId,apiKey,sheetTitle});
+      const {rows,groupCol}=parseSchedule(sheet,group);
+      const meta={sheetId,sheetTitle,group,groupCol,updatedAt:Date.now()};
+      saveToLocal(rows,meta); renderRows(rows);
+      setStatus(`Обновлено • ${fmtDateTime(meta.updatedAt)}`);
+    }
+
+    // ====== INIT ======
+    window.addEventListener('load',async()=>{
+      $('sheetId').value=DEFAULTS.SHEET_ID;
+      $('apiKey').value=DEFAULTS.API_KEY;
+      $('groupName').value=DEFAULTS.GROUP_NAME;
+      $('sheetTitle').value=DEFAULTS.SHEET_TITLE;
+      const cached=loadFromLocal(); if(cached){ renderRows(cached.rows); setStatus(`Кеш • ${fmtDateTime(cached.meta.updatedAt)}`); }
+      $('loadBtn').addEventListener('click',()=>loadSchedule({useCache:false}).catch(e=>setStatus(e.message)));
+      $('refreshBtn').addEventListener('click',()=>loadSchedule({useCache:false}).catch(e=>setStatus(e.message)));
+      $('weekInfo').textContent=getWeekParity();
+      if('serviceWorker'in navigator){ try{ await navigator.serviceWorker.register('./sv.js'); }catch(e){console.warn(e);} }
+    });
+  </script>
+</body>
+</html>
