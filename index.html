@@ -240,8 +240,8 @@
 
     // ====== INIT ======
     window.addEventListener('load',async()=>{
-      $('sheetId').value=DEFAULTS.SHEET_ID;
-      $('apiKey').value=DEFAULTS.API_KEY;
+      const apiKey = DEFAULTS.API_KEY;
+      const sheetId = DEFAULTS.SHEET_ID;
       $('groupName').value=DEFAULTS.GROUP_NAME;
       $('sheetTitle').value=DEFAULTS.SHEET_TITLE;
       const cached=loadFromLocal(); if(cached){ renderRows(cached.rows); setStatus(`Кеш • ${fmtDateTime(cached.meta.updatedAt)}`); }
