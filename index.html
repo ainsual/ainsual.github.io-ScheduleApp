@@ -49,6 +49,8 @@
   <header class="wrap">
     <h1>Расписание</h1>
     <div class="controls">
+      <input id="sheetId" placeholder="Google Sheet ID" size="22" />
+      <input id="apiKey" placeholder="Google API Key" size="18" />
       <input id="groupName" placeholder="Группа (напр. 11-403)" size="14" />
       <input id="sheetTitle" placeholder="Название листа (опц.)" size="14" />
       <button id="loadBtn">Загрузить</button>
@@ -220,8 +222,8 @@
     }
 
     async function loadSchedule({useCache=true}={}){
-      const sheetId=$('sheetId').value.trim()||DEFAULTS.SHEET_ID;
-      const apiKey=$('apiKey').value.trim()||DEFAULTS.API_KEY;
+      const sheetId=DEFAULTS.SHEET_ID;
+      const apiKey= DEFAULTS.API_KEY;
       const group=$('groupName').value.trim()||DEFAULTS.GROUP_NAME;
       const sheetTitle=$('sheetTitle').value.trim()||DEFAULTS.SHEET_TITLE;
       if(useCache){
